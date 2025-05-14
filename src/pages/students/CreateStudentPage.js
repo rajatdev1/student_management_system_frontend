@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'; 
+import React, { useState, useEffect,useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -13,10 +13,14 @@ import {
   CircularProgress,
   Grid,
   Snackbar,
-  Alert
+  Alert,
+  FormControlLabel,
+  Checkbox,
+  Avatar
 } from '@mui/material';
 import { Formik } from 'formik';
 import * as Yup from 'yup';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import api from '../../services/api';
 
 const validationSchema = Yup.object().shape({
@@ -40,14 +44,15 @@ const CreateStudentPage = () => {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [openSnackbar, setOpenSnackbar] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const fileInputRef = useRef(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // First check if classes exist, if not initialize them
         const classesResponse = await api.get('/classes');
-        
         if (classesResponse.data.length === 0) {
           await api.post('/classes/initialize');
           const newClassesResponse = await api.get('/classes');
@@ -62,29 +67,62 @@ const CreateStudentPage = () => {
         setLoading(false);
       }
     };
-
     fetchData();
   }, []);
 
-  const handleSubmit = async (values, { resetForm, setSubmitting }) => {
-    try {
-      await api.post('/students', values);
-      setSuccessMessage('Student created successfully!');
-      setOpenSnackbar(true);
-      resetForm();
-      
-      // Navigate after a short delay to show the success message
-      setTimeout(() => {
-        navigate(`/classes/${values.class_id}/students`);
-      }, 1500);
-    } catch (err) {
-      console.error('Error creating student:', err);
-      setError(err.response?.data?.error || 'Failed to create student');
-      setOpenSnackbar(true);
-    } finally {
-      setSubmitting(false);
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setSelectedImage(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
     }
   };
+
+  const handleSubmit = async (values, { resetForm, setSubmitting }) => {
+  try {
+    const formData = new FormData();
+    
+    // Append all form values
+    Object.keys(values).forEach(key => {
+      if (key !== 'is_active') {
+        formData.append(key, values[key]);
+      }
+    });
+    
+    // Fix: Ensure proper boolean conversion for status
+    formData.append('status', values.is_active === true || values.is_active === 'true' ? 'active' : 'inactive');
+    
+    if (selectedImage) {
+      formData.append('image', selectedImage);
+    }
+
+    const response = await api.post('/students', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+    
+    setSuccessMessage('Student created successfully!');
+    setOpenSnackbar(true);
+    resetForm();
+    setSelectedImage(null);
+    setImagePreview(null);
+    
+    setTimeout(() => {
+      navigate(`/classes/${values.class_id}/students`);
+    }, 1500);
+  } catch (err) {
+    console.error('Error creating student:', err);
+    setError(err.response?.data?.error || 'Failed to create student');
+    setOpenSnackbar(true);
+  } finally {
+    setSubmitting(false);
+  }
+};
 
   const handleCloseSnackbar = () => {
     setOpenSnackbar(false);
@@ -101,7 +139,7 @@ const CreateStudentPage = () => {
   return (
     <Container maxWidth="md">
       <Box my={4}>
-        <Typography variant="h4" gutterBottom>
+        <Typography variant="h4" gutterBottom sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
           Add New Student
         </Typography>
         {error && (
@@ -135,10 +173,66 @@ const CreateStudentPage = () => {
             handleChange,
             handleBlur,
             handleSubmit,
-            isSubmitting
+            isSubmitting,
+            setFieldValue
           }) => (
             <form onSubmit={handleSubmit}>
               <Grid container spacing={3}>
+                {/* Image Upload Section */}
+               {/* Image Upload Section */}
+<Grid item xs={12}>
+  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'left', gap: 2 }}>
+    <Avatar
+      src={imagePreview}
+      sx={{ 
+        width: 150, 
+        height: 150,
+        mb: 2
+      }}
+    />
+    
+    <input
+      accept="image/*"
+      style={{ display: 'none' }}
+      id="student-image-upload"
+      type="file"
+      ref={fileInputRef}
+      onChange={handleImageChange}
+    />
+    <label htmlFor="student-image-upload">
+      <Button 
+        variant="contained" 
+        component="span"
+        startIcon={<CloudUploadIcon />}
+      >
+        {imagePreview ? 'Change Image' : 'Upload Image'}
+      </Button>
+    </label>
+    
+    {selectedImage && (
+      <Typography variant="body2">
+        {selectedImage.name}
+      </Typography>
+    )}
+  </Box>
+</Grid>
+
+                {/* Status Checkbox */}
+                <Grid item xs={8}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={values.is_active}
+                        onChange={(e) => setFieldValue('is_active', e.target.checked)}
+                        name="is_active"
+                        color="primary"
+                      />
+                    }
+                    label="Active Student"
+                  />
+                </Grid>
+
+                {/* Rest of the form fields */}
                 <Grid item xs={12} md={6}>
                   <TextField
                     fullWidth
@@ -285,6 +379,7 @@ const CreateStudentPage = () => {
                     helperText={touched.contact_number && errors.contact_number}
                   />
                 </Grid>
+
                 <Grid item xs={12}>
                   <Button
                     type="submit"
@@ -301,7 +396,6 @@ const CreateStudentPage = () => {
         </Formik>
       </Box>
 
-      {/* Success/Error Notification */}
       <Snackbar 
         open={openSnackbar} 
         autoHideDuration={6000} 
@@ -321,8 +415,3 @@ const CreateStudentPage = () => {
 };
 
 export default CreateStudentPage;
-
-
-
-
-

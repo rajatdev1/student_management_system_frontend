@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Box,
@@ -13,10 +13,14 @@ import {
   CircularProgress,
   Grid,
   Snackbar,
-  Alert
+  Alert,
+  FormControlLabel,
+  Checkbox,
+  Avatar
 } from '@mui/material';
 import { Formik } from 'formik';
 import * as Yup from 'yup';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import api from '../../services/api';
 
 const validationSchema = Yup.object().shape({
@@ -42,47 +46,86 @@ const EditStudentPage = () => {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [openSnackbar, setOpenSnackbar] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const fileInputRef = useRef(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Fetch student data
-        const studentResponse = await api.get(`/students/${id}`);
-        setStudent(studentResponse.data);
-        
-        // Fetch classes data
-        const classesResponse = await api.get('/classes');
-        setClasses(classesResponse.data);
-      } catch (err) {
-        console.error('Error fetching data:', err);
-        setError('Failed to fetch student data. Please try again later.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [id]);
-
-  const handleSubmit = async (values, { setSubmitting }) => {
+ useEffect(() => {
+  const fetchData = async () => {
     try {
-      await api.put(`/students/${id}`, values);
-      setSuccessMessage('Student updated successfully!');
-      setOpenSnackbar(true);
+      const [studentResponse, classesResponse] = await Promise.all([
+        api.get(`/students/${id}`),
+        api.get('/classes')
+      ]);
       
-      // Navigate back to class students page after update
-      setTimeout(() => {
-        navigate(`/classes/${values.class_id}/students`);
-      }, 1500);
+      setStudent(studentResponse.data);
+      setClasses(classesResponse.data);
+      
+      // Fix image preview URL
+      if (studentResponse.data.image_filename) {
+        setImagePreview(`http://localhost:3008/uploads/students/${studentResponse.data.image_filename}`);
+      }
     } catch (err) {
-      console.error('Error updating student:', err);
-      setError(err.response?.data?.error || 'Failed to update student');
-      setOpenSnackbar(true);
+      console.error('Error fetching data:', err);
+      setError('Failed to fetch student data. Please try again later.');
     } finally {
-      setSubmitting(false);
+      setLoading(false);
     }
   };
+  fetchData();
+}, [id]);
+
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setSelectedImage(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+const handleSubmit = async (values, { setSubmitting }) => {
+  try {
+    const formData = new FormData();
+    
+    // Append all form values
+    Object.keys(values).forEach(key => {
+      if (key !== 'is_active') {
+        formData.append(key, values[key]);
+      }
+    });
+    
+    // Ensure proper status conversion
+    formData.append('status', values.is_active ? 'active' : 'inactive');
+    
+    if (selectedImage) {
+      formData.append('image', selectedImage);
+    }
+
+    const response = await api.put(`/students/${id}`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+    
+    setSuccessMessage('Student updated successfully!');
+    setOpenSnackbar(true);
+    
+    setTimeout(() => {
+      navigate(`/classes/${values.class_id}/students`);
+    }, 1500);
+  } catch (err) {
+    console.error('Error updating student:', err);
+    setError(err.response?.data?.error || 'Failed to update student');
+    setOpenSnackbar(true);
+  } finally {
+    setSubmitting(false);
+  }
+};
 
   const handleCloseSnackbar = () => {
     setOpenSnackbar(false);
@@ -107,7 +150,7 @@ const EditStudentPage = () => {
   return (
     <Container maxWidth="md">
       <Box my={4}>
-        <Typography variant="h4" gutterBottom>
+        <Typography variant="h4" gutterBottom sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
           Edit Student
         </Typography>
         {error && (
@@ -131,7 +174,7 @@ const EditStudentPage = () => {
               mother_aadhar: student.mother_aadhar || '',
               address: student.address || '',
               contact_number: student.contact_number || '',
-              is_active: student.is_active
+              is_active: student.status === 'active'
             }}
             validationSchema={validationSchema}
             onSubmit={handleSubmit}
@@ -144,10 +187,65 @@ const EditStudentPage = () => {
               handleChange,
               handleBlur,
               handleSubmit,
-              isSubmitting
+              isSubmitting,
+              setFieldValue
             }) => (
               <form onSubmit={handleSubmit}>
                 <Grid container spacing={3}>
+                  {/* Image Upload Section */}
+                 <Grid item xs={12}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'left', gap: 2 }}>
+                      <Avatar
+                        src={imagePreview}
+                        sx={{ 
+                          width: 150, 
+                          height: 150,
+                          mb: 2
+                        }}
+                      />
+                      
+                      <input
+                        accept="image/*"
+                        style={{ display: 'none' }}
+                        id="student-image-upload"
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleImageChange}
+                      />
+                      <label htmlFor="student-image-upload">
+                        <Button 
+                          variant="contained" 
+                          component="span"
+                          startIcon={<CloudUploadIcon />}
+                        >
+                          {imagePreview ? 'Change Image' : 'Upload Image'}
+                        </Button>
+                      </label>
+                      
+                      {selectedImage && (
+                        <Typography variant="body2">
+                          {selectedImage.name}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Grid>
+
+                  {/* Status Checkbox */}
+                    <Grid item xs={12}>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={values.is_active}
+                          onChange={(e) => setFieldValue('is_active', e.target.checked)}
+                          name="is_active"
+                          color="primary"
+                        />
+                      }
+                      label="Active Student"
+                    />
+                  </Grid>
+
+                  {/* Rest of the form fields */}
                   <Grid item xs={12} md={6}>
                     <TextField
                       fullWidth
@@ -160,7 +258,7 @@ const EditStudentPage = () => {
                       helperText={touched.name && errors.name}
                     />
                   </Grid>
-                  <Grid item xs={12} md={6}>
+                 <Grid item xs={12} md={6}>
                     <FormControl fullWidth error={touched.class_id && Boolean(errors.class_id)}>
                       <InputLabel>Class</InputLabel>
                       <Select
@@ -294,7 +392,7 @@ const EditStudentPage = () => {
                     error={touched.contact_number && Boolean(errors.contact_number)}
                     helperText={touched.contact_number && errors.contact_number}
                   />
-                </Grid>
+                 </Grid>
                   <Grid item xs={12}>
                     <Button
                       type="submit"
